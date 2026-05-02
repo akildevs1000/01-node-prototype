@@ -349,7 +349,7 @@ app.get('/api', (_req, res) => {
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-const PORT = process.env.PORT || 7841;
+const PORT = process.env.PORT || 7844;
 app.listen(PORT,"0.0.0.0", () => {
   console.log(`EID prototype backend listening on http://"0.0.0.0":${PORT}`);
   console.log(`Open http://0.0.0.0:${PORT}/ in a browser to test.`);
