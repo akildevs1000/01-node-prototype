@@ -1,6 +1,14 @@
 // Minimal Emirates ID Toolkit prototype client.
 // Demonstrates: Initialize -> List/Connect reader -> Card Version -> Read Public Data.
 
+// Stubs for globals that eidatoolkit.js expects to be defined by the host page.
+// (FAIC's vendor sample defines these in toolkit_sample.js; we route them
+// through our setStatus instead so they don't throw ReferenceError.)
+window.showLoader      = () => setStatus('Working...', 'info');
+window.hideLoader      = () => {};
+window.displayProgress = (msg) => setStatus(String(msg), 'info');
+window.changeButtonState = () => {};
+
 let ToolkitOB = null;
 let readerClass = null;
 
@@ -49,10 +57,15 @@ function setButtons(enabled) {
   $btnPublic.disabled   = !enabled;
 }
 
+// Auto-pick TLS to the agent based on how the page itself is served:
+//   http://localhost     -> ws://127.0.0.1:9020       (dev, simple)
+//   https://your-domain  -> wss://toolkitagent.emiratesid.ae:9020   (prod)
+// This avoids browser mixed-content errors and Chrome's Private Network Access
+// block when serving from a public IP.
 const options = {
   jnlp_address: 'IDCardToolkitService.jnlp',
   debugEnabled: true,
-  agent_tls_enabled: false,
+  agent_tls_enabled: location.protocol === 'https:',
   agent_host_name: 'toolkitagent.emiratesid.ae',
   toolkitConfig:
     'vg_connection_timeout = 60\n' +
