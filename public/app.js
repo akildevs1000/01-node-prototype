@@ -1,23 +1,27 @@
 // Minimal Emirates ID Toolkit prototype client.
-// Demonstrates: Initialize -> List/Connect reader -> Card Version -> Read Public Data.
+// Single button: Read Public Data
+//   - Tears down any previous session
+//   - Initializes (WebSocket -> list reader -> connect)
+//   - Reads public data
+//   - Posts the XML to /api/parse-public-data and shows the JSON
+//
+// Architecture: browser -> local Toolkit Agent (WebSocket) -> smartcard
+//                browser -> Node /api/parse-public-data       (HTTP, JSON)
 
 // Stubs for globals that eidatoolkit.js expects to be defined by the host page.
-// (FAIC's vendor sample defines these in toolkit_sample.js; we route them
-// through our setStatus instead so they don't throw ReferenceError.)
-window.showLoader      = () => setStatus('Working...', 'info');
-window.hideLoader      = () => {};
-window.displayProgress = (msg) => setStatus(String(msg), 'info');
+window.showLoader        = () => {};
+window.hideLoader        = () => {};
+window.displayProgress   = (msg) => setStatus(String(msg), 'info');
 window.changeButtonState = () => {};
 
-let ToolkitOB = null;
-let readerClass = null;
+let ToolkitOB    = null;
+let readerClass  = null;
+let readyResolve = null;   // resolves the in-flight initialize() promise
+let readyReject  = null;
 
-const $status = document.getElementById('status');
-const $output = document.getElementById('output');
-const $btnInit     = document.getElementById('btnInit');
-const $btnRegister = document.getElementById('btnRegister');
-const $btnVersion  = document.getElementById('btnVersion');
-const $btnPublic   = document.getElementById('btnPublic');
+const $status    = document.getElementById('status');
+const $output    = document.getElementById('output');
+const $btnPublic = document.getElementById('btnPublic');
 
 function setStatus(text, kind = 'info') {
   $status.textContent = text;
@@ -26,8 +30,7 @@ function setStatus(text, kind = 'info') {
 }
 
 function setOutput(obj) {
-  // If the response wraps an XML string in tooklitResponse, send it to the
-  // server's /api/parse-public-data endpoint to get clean JSON.
+  // If the response wraps an XML string, post it to the server's parser endpoint.
   if (obj && typeof obj === 'object' && typeof obj.tooklitResponse === 'string') {
     $output.textContent = '(parsing on server...)';
     fetch('/api/parse-public-data', {
@@ -51,17 +54,7 @@ function setOutput(obj) {
   $output.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
 }
 
-function setButtons(enabled) {
-  $btnRegister.disabled = !enabled;
-  $btnVersion.disabled  = !enabled;
-  $btnPublic.disabled   = !enabled;
-}
-
-// Auto-pick TLS to the agent based on how the page itself is served:
-//   http://localhost     -> ws://127.0.0.1:9020       (dev, simple)
-//   https://your-domain  -> wss://toolkitagent.emiratesid.ae:9020   (prod)
-// This avoids browser mixed-content errors and Chrome's Private Network Access
-// block when serving from a public IP.
+// Auto-pick TLS to the agent based on how the page itself is served.
 const options = {
   jnlp_address: 'IDCardToolkitService.jnlp',
   debugEnabled: true,
@@ -76,25 +69,26 @@ const options = {
 
 const IsSam = { sam_secure_messaging: true };
 
-function onError(err) {
+// ---------------------------------------------------------------------------
+// SDK callbacks. These resolve/reject the in-flight initialize() promise.
+// ---------------------------------------------------------------------------
+
+function failInit(err) {
+  const msg = err?.message || err?.errormessage || JSON.stringify(err);
   readerClass = null;
   ToolkitOB = null;
-  setButtons(false);
-  setStatus('Error: ' + (err?.message || JSON.stringify(err)), 'err');
+  if (readyReject) {
+    const r = readyReject; readyReject = readyResolve = null;
+    r(new Error(msg));
+  }
+  setStatus('Error: ' + msg, 'err');
 }
 
-function onClose() {
-  ToolkitOB = null;
-  readerClass = null;
-  setButtons(false);
-  setStatus('WebSocket closed.', 'info');
-}
+function onError(err)  { failInit(err); }
+function onClose()     { failInit(new Error('WebSocket closed')); }
 
 function onOpen(_response, error) {
-  if (error) {
-    setStatus('WebSocket open error: ' + error.message, 'err');
-    return;
-  }
+  if (error) return failInit(error);
   setStatus('WebSocket open. Listing readers...', 'info');
   if (IsSam.sam_secure_messaging) {
     ToolkitOB.getReaderWithEmiratesId(onReaderList);
@@ -104,15 +98,11 @@ function onOpen(_response, error) {
 }
 
 function onReaderList(response, error) {
-  if (error) return onError(error);
-
+  if (error) return failInit(error);
   if (IsSam.sam_secure_messaging) {
     readerClass = response;
   } else {
-    if (!response || response.length === 0) {
-      setStatus('No readers found.', 'err');
-      return;
-    }
+    if (!response || response.length === 0) return failInit(new Error('No readers found'));
     readerClass = response[0];
   }
   setStatus('Reader found. Connecting...', 'info');
@@ -120,68 +110,96 @@ function onReaderList(response, error) {
 }
 
 function onConnect(_response, error) {
-  if (error) {
-    setStatus('Connect failed: ' + (error.message || error.code), 'err');
-    return;
-  }
+  if (error) return failInit(error);
   setStatus('Card connected. Ready.', 'ok');
   readerClass.getInterfaceType(onInterface);
 }
 
 function onInterface(response, error) {
-  if (error) return onError(error);
+  if (error) return failInit(error);
   if (response === 2) {
-    setStatus('NFC interface detected — set NFC params before reading. (Prototype does not implement NFC param entry; insert a contact card.)', 'err');
-    return;
+    return failInit(new Error('NFC interface detected — insert a contact card instead.'));
   }
-  setButtons(true);
+  // Init succeeded — resolve the in-flight initialize() promise.
+  if (readyResolve) {
+    const r = readyResolve; readyResolve = readyReject = null;
+    r();
+  }
 }
 
-$btnInit.addEventListener('click', () => {
-  if (ToolkitOB && readerClass) {
-    setStatus('Already initialized.', 'info');
-    setButtons(true);
-    return;
-  }
-  setStatus('Initializing...', 'info');
+// ---------------------------------------------------------------------------
+// Teardown + initialize. initialize() returns a Promise.
+// ---------------------------------------------------------------------------
+
+function teardown(done) {
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    readerClass = null;
+    ToolkitOB = null;
+    done && done();
+  };
   try {
-    ToolkitOB = new Toolkit(onOpen, onClose, onError, options);
-  } catch (e) {
-    setStatus('Init threw: ' + e.message, 'err');
+    if (readerClass && typeof readerClass.disconnect === 'function') {
+      readerClass.disconnect(() => finish());
+    } else {
+      finish();
+    }
+  } catch (_) {
+    finish();
   }
-});
+  try { ToolkitOB?.closeWebSocket?.(); } catch (_) {}
+  setTimeout(finish, 800);
+}
 
-$btnRegister.addEventListener('click', () => {
-  if (!ToolkitOB) return setStatus('Not initialized.', 'err');
-  setStatus('Registering device...', 'info');
-  const requestId = btoa(randomString(40));
-  ToolkitOB.prepareRequest(requestId, (response, error) => {
-    if (error) return setStatus('Register failed: ' + error.message, 'err');
-    setOutput(response);
-    setStatus('Device registered. See output.', 'ok');
+function initialize() {
+  return new Promise((resolve, reject) => {
+    const startFresh = () => {
+      readyResolve = resolve;
+      readyReject  = reject;
+      setStatus('Initializing...', 'info');
+      try {
+        ToolkitOB = new Toolkit(onOpen, onClose, onError, options);
+      } catch (e) {
+        readyResolve = readyReject = null;
+        reject(e);
+      }
+    };
+    if (ToolkitOB || readerClass) {
+      setStatus('Resetting previous session...', 'info');
+      teardown(startFresh);
+    } else {
+      startFresh();
+    }
   });
-});
+}
 
-$btnVersion.addEventListener('click', () => {
-  if (!readerClass) return setStatus('Reader not initialized.', 'err');
-  setStatus('Reading card version...', 'info');
-  readerClass.getCardVersion((response, error) => {
-    if (error) return setStatus('Version error: ' + (error.errormessage || error.message), 'err');
-    setOutput(response);
-    setStatus('Card version read.', 'ok');
-  });
-});
+// ---------------------------------------------------------------------------
+// Button
+// ---------------------------------------------------------------------------
 
-$btnPublic.addEventListener('click', () => {
-  if (!readerClass) return setStatus('Reader not initialized.', 'err');
-  setStatus('Reading public data...', 'info');
-  const requestId = btoa(randomString(40));
-  // Signature: readPublicData(requestId, nonModifiable, modifiable, fingerprintInfo, homeAddressFlag, addressFlag, callback)
-  readerClass.readPublicData(requestId, true, true, true, true, true, (response, error) => {
-    if (error) return setStatus('Public data error: ' + (error.message || error.errormessage), 'err');
-    setOutput(response);
-    setStatus('Public data read. See output.', 'ok');
-  });
+$btnPublic.addEventListener('click', async () => {
+  $btnPublic.disabled = true;
+  try {
+    // Always re-initialize to pick up the current card (handles card swaps).
+    await initialize();
+
+    setStatus('Reading public data...', 'info');
+    const requestId = btoa(randomString(40));
+    readerClass.readPublicData(requestId, true, true, true, true, true, (response, error) => {
+      if (error) {
+        setStatus('Public data error: ' + (error.message || error.errormessage), 'err');
+      } else {
+        setOutput(response);
+        setStatus('Public data read. See output.', 'ok');
+      }
+      $btnPublic.disabled = false;
+    });
+  } catch (err) {
+    setStatus('Read failed: ' + err.message, 'err');
+    $btnPublic.disabled = false;
+  }
 });
 
 function randomString(len) {
