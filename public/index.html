@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>EID Prototype</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2em auto; padding: 0 1em; }
+    h1 { font-size: 1.4em; }
+    button { padding: 0.5em 1em; margin: 0.25em 0.25em 0.25em 0; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    pre { background: #111; color: #eee; padding: 1em; border-radius: 4px; max-height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+    .status { padding: 0.5em; border-radius: 4px; margin: 0.5em 0; }
+    .status.ok  { background: #d4edda; color: #155724; }
+    .status.err { background: #f8d7da; color: #721c24; }
+    .status.info{ background: #d1ecf1; color: #0c5460; }
+  </style>
+</head>
+<body>
+  <h1>Emirates ID — Node.js Prototype</h1>
+  <p>Card reader on the local PC. Toolkit Agent service must be running. Hosts file must point <code>toolkitagent.emiratesid.ae</code> at <code>127.0.0.1</code>.</p>
+
+  <div>
+    <button id="btnInit">1. Initialize</button>
+    <button id="btnRegister" disabled>2. Register Device</button>
+    <button id="btnVersion"  disabled>3. Card Version</button>
+    <button id="btnPublic"   disabled>4. Read Public Data</button>
+  </div>
+
+  <div id="status" class="status info">Not initialized.</div>
+
+  <h3>Output</h3>
+  <pre id="output">(nothing yet)</pre>
+
+  <script src="eidatoolkit.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

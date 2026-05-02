@@ -1,0 +1,16 @@
+{
+  "name": "eid-prototype",
+  "version": "0.1.0",
+  "description": "Node.js prototype for Emirates ID Card Toolkit web SDK",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "sample": "node sample-server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "@xmldom/xmldom": "^0.8.10",
+    "xml-crypto": "^6.0.0"
+  }
+}
