@@ -25,9 +25,9 @@ if not exist node_modules (
 )
 
 echo.
-echo  Starting prototype on http://localhost:8080 ...
+echo  Starting prototype on http://localhost:7841 ...
 echo  ^(Press Ctrl+C in this window to stop the server.^)
 echo.
-start "" "http://localhost:8080/"
+start "" "http://localhost:7841/"
 node server.js
 pause

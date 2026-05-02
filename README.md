@@ -36,7 +36,7 @@ npm install
 npm start
 ```
 
-Then open `http://localhost:8080/`. Click Initialize → Read Public Data.
+Then open `http://localhost:7841/`. Click Initialize → Read Public Data.
 
 On Windows, you can double-click `start.bat` instead — it runs `npm install` on first launch and opens the browser automatically.
 
@@ -122,7 +122,7 @@ Empty fields come back as `null`. Always pass `verify: true` in production.
 ## Calling the API from another app
 
 ```javascript
-const r = await fetch('http://localhost:8080/api/parse-public-data', {
+const r = await fetch('http://localhost:7841/api/parse-public-data', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ xml: signedXmlFromCard, verify: true })
